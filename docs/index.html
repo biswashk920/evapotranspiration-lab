@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ET Compare: reference evapotranspiration</title>
+<style>
+:root{--bg:#f2f6f7;--ink:#10252d;--mut:#5a6f77;--card:#fff;--line:#d3dee2;--pm:#0b7285;--hg:#d9822b;--th:#6b4fa0}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1a1f;--ink:#e3eef1;--mut:#92a8b0;--card:#15262d;--line:#2a4049;--pm:#3fb6cc;--hg:#f0a04b;--th:#a58bdc}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,sans-serif}
+header,main{max-width:1060px;margin:auto;padding:0 18px}header{padding-top:26px}
+h1{font:700 2rem Georgia,serif;margin:0}h2{font:700 1.2rem Georgia,serif;margin:0 0 8px}p.s{color:var(--mut);margin:.3rem 0 1rem;max-width:70ch}
+nav{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0}nav button{padding:8px 14px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:6px;cursor:pointer;font:inherit}
+nav button[aria-selected=true]{background:var(--pm);color:#fff;border-color:var(--pm)}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--hg);outline-offset:1px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+label{display:block;font-size:.85rem;color:var(--mut)}input,select{width:100%;padding:6px;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:5px}
+input[type=range]{padding:0}.v{color:var(--ink);font-weight:600}
+.res{display:flex;gap:12px;flex-wrap:wrap}.res div{flex:1;min-width:150px;border-left:5px solid;padding:4px 10px}.res b{font:700 1.8rem Georgia,serif;display:block}
+table{border-collapse:collapse;width:100%;font-size:.88rem}td,th{border-bottom:1px solid var(--line);padding:4px 6px;text-align:right}th:first-child,td:first-child{text-align:left}
+.sc{overflow-x:auto}.mono{font-family:ui-monospace,monospace}svg{width:100%;height:auto;display:block}.btn{padding:8px 14px;border-radius:6px;border:1px solid var(--pm);background:var(--pm);color:#fff;cursor:pointer;font:inherit}
+.note{font-size:.82rem;color:var(--mut)}code{background:var(--bg);padding:1px 4px;border-radius:3px}[hidden]{display:none!important}
+.wp{animation:rise 2.4s ease-in infinite}@keyframes rise{0%{opacity:0;transform:translateY(10px)}25%{opacity:.9}100%{opacity:0;transform:translateY(-22px)}}@media(prefers-reduced-motion:reduce){.wp{animation:none}}
+</style></head><body>
+<header><h1>ET Compare</h1><p class="s">Reference evapotranspiration (ET₀) from weather data. Calculate one day with FAO-56 Penman-Monteith, then see how the simpler Hargreaves and Thornthwaite methods compare.</p>
+<nav role="tablist" id="tabs"></nav></header>
+<main>
+<section id="p-calc"><div class="card"><h2>Weather inputs for one day</h2><div class="grid" id="inp"></div></div>
+<div class="card"><h2>Result</h2><div class="res" id="res"></div><p class="note" id="rmsg"></p></div>
+<div class="card"><h2>Penman-Monteith steps</h2><div class="sc"><table id="steps"></table></div></div>
+<div class="card"><h2>Which input matters most?</h2><p class="note">Each input is raised by 10% (temperatures by 1 °C) and the change in Penman-Monteith ET₀ is shown.</p><div id="sens"></div></div></section>
+
+<section id="p-comp" hidden><div class="card"><h2>Year comparison</h2><p class="s">Pick a climate. Edit any monthly value in the table. Daily ET₀ is computed for the middle day of each month and scaled to mm/month. Presets are rounded illustrative values, not observed station records.</p>
+<div class="grid"><label>Climate preset<select id="pre"></select></label><label>Latitude (°, north +)<input id="clat" type="number" step="0.1"></label><label>Elevation (m)<input id="celev" type="number"></label><label>Warming: +<span class="v" id="wv">0</span> °C<input id="warm" type="range" min="0" max="4" step="0.5" value="0"></label></div><p class="note" id="wmsg"></p></div>
+<div class="card"><div id="tg" class="note"></div><div id="ch"></div><div class="res" id="tot"></div></div>
+<div class="card sc"><table id="mt"></table><p class="note">Wind is measured at 2 m. Sunshine in hours per day. Thornthwaite uses only mean temperature and latitude. Rainfall presets are illustrative.</p></div>
+<div class="card"><h2>Hargreaves local calibration</h2><p id="cal"></p></div>
+<div class="card"><h2>Rainfall and ET₀</h2><div id="rch"></div><p id="ai"></p></div>
+</section>
+
+<section id="p-season" hidden><div class="card"><h2>Season player</h2><p class="s">Press play to sweep through the year. The sun grows with extraterrestrial radiation and more vapour rises as ET₀ increases. Monthly inputs are interpolated between mid-month values.</p>
+<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center"><div id="sc" style="width:min(100%,420px)"></div><div style="flex:1;min-width:260px"><p><button class="btn" id="play">Play year</button></p><label><input id="pl" type="range" min="1" max="365" value="100" aria-label="Day of year"></label><p id="pd" class="v"></p></div></div><div id="dch"></div></div></section>
+<section id="p-csv" hidden><div class="card"><h2>Daily weather file</h2><p class="s">Upload a CSV with columns <code>date,tmax,tmin,rh_mean,wind,sunshine</code> (wind at 2 m in m/s, sunshine in hours). Nothing leaves your browser.</p>
+<div class="grid"><label>CSV file<input id="file" type="file" accept=".csv"></label><label>Latitude (°)<input id="flat" type="number" step="0.1" value="27.7"></label><label>Elevation (m)<input id="felev" type="number" value="1400"></label></div>
+<p><button class="btn" id="sample">Load sample data</button> <button class="btn" id="dl" hidden>Download results CSV</button></p><p class="note" id="fmsg"></p></div>
+<div class="card" id="fres" hidden><div id="fch"></div><div class="sc"><table id="ft"></table></div></div></section>
+
+<section id="p-how" hidden><div class="card"><h2>How it works</h2>
+<p><b>Penman-Monteith (FAO-56)</b>, the reference method:</p><p class="mono">ET₀ = [0.408 Δ (Rn − G) + γ · 900/(T+273) · u₂ (eₛ − eₐ)] / [Δ + γ (1 + 0.34 u₂)]</p>
+<p class="note">Δ slope of the vapour pressure curve, Rn net radiation, G soil heat flux (taken as 0 for a day), γ psychrometric constant, u₂ wind at 2 m, eₛ − eₐ vapour pressure deficit. It needs temperature, humidity, wind and sunshine or radiation.</p>
+<p><b>Hargreaves-Samani</b>:</p><p class="mono">ET₀ = 0.0023 (Tmean + 17.8) √(Tmax − Tmin) Ra</p><p class="note">Temperature and latitude only. It tends to overestimate in humid, cloudy places and underestimate where wind is strong.</p>
+<p><b>Thornthwaite</b>:</p><p class="mono">PET = 16 (10 T / I)<sup>a</sup> × daylight/12 × days/30</p><p class="note">Monthly mean temperature only, built from US conditions. It often underestimates in dry climates and in the tropics.</p>
+<p><b>Other methods in the comparison.</b> <i>PM, temperature only</i> follows FAO-56 for stations without humidity or radiation data: Rs = 0.16 √(Tmax − Tmin) Ra, dew point = Tmin − 2 °C, wind = 2 m/s. <i>Priestley-Taylor</i>: ET₀ = 1.26 Δ/(Δ+γ) · Rn/λ, which drops the wind and humidity term. <i>Blaney-Criddle</i> (simple form): ET₀ = p (0.46 T + 8.13), with p the day's share of annual daylight hours. <i>Calibrated Hargreaves</i> multiplies Hargreaves by a least-squares factor k fitted to Penman-Monteith.</p>
+<p class="note">Aridity index = annual rainfall ÷ annual ET₀ (UNEP classes: below 0.05 hyper-arid, to 0.2 arid, to 0.5 semi-arid, to 0.65 dry sub-humid, above that humid). The warming slider raises temperature only; humidity, wind and sunshine stay fixed.</p>
+<p class="note">Validation: the Python reference reproduces FAO-56 Example 18 (Uccle, 6 July, 3.9 mm/day) and this page uses the same equations, checked against the Python code by <code>tests/check_web_parity.js</code>.</p></div></section>
+</main>
+<script>
+// ==== ET CORE START
+const MID=[15,45,74,105,135,166,196,227,258,288,319,349],DAYS=[31,28,31,30,31,30,31,31,30,31,30,31],RAD=Math.PI/180;
+const svp=t=>0.6108*Math.exp(17.27*t/(t+237.3));
+const decl=j=>0.409*Math.sin(2*Math.PI*j/365-1.39);
+const wsA=(lat,j)=>Math.acos(Math.max(-1,Math.min(1,-Math.tan(lat*RAD)*Math.tan(decl(j)))));
+const dayH=(lat,j)=>24/Math.PI*wsA(lat,j);
+function Ra(lat,j){const p=lat*RAD,d=decl(j),w=wsA(lat,j),dr=1+0.033*Math.cos(2*Math.PI*j/365);
+ return 24*60/Math.PI*0.082*dr*(w*Math.sin(p)*Math.sin(d)+Math.cos(p)*Math.cos(d)*Math.sin(w));}
+function PM(a){const tm=(a.tmax+a.tmin)/2,P=101.3*Math.pow((293-0.0065*a.elev)/293,5.26),g=0.000665*P,
+ D=4098*svp(tm)/Math.pow(tm+237.3,2),es=(svp(a.tmax)+svp(a.tmin))/2,ea=a.eaO!=null?a.eaO:(svp(a.tmin)*a.rhmax/100+svp(a.tmax)*a.rhmin/100)/2,
+ ra=Ra(a.lat,a.doy),N=dayH(a.lat,a.doy),rs=a.rs!=null?a.rs:(0.25+0.5*Math.min(a.sun/N,1))*ra,rso=(0.75+2e-5*a.elev)*ra,
+ rns=0.77*rs,rel=rso>0?Math.min(rs/rso,1):0.5,
+ rnl=4.903e-9*(Math.pow(a.tmax+273.16,4)+Math.pow(a.tmin+273.16,4))/2*(0.34-0.14*Math.sqrt(ea))*(1.35*rel-0.35),rn=rns-rnl,
+ et0=Math.max(0,(0.408*D*rn+g*900/(tm+273)*a.u2*(es-ea))/(D+g*(1+0.34*a.u2)));
+ return{et0,tm,P,g,D,es,ea,ra,N,rs,rso,rns,rnl,rn};}
+function HG(a){return Math.max(0,0.0023*((a.tmax+a.tmin)/2+17.8)*Math.sqrt(Math.max(a.tmax-a.tmin,0))*0.408*Ra(a.lat,a.doy));}
+function TH(T,lat){let I=0;T.forEach(t=>{if(t>0)I+=Math.pow(t/5,1.514)});
+ const a=6.75e-7*I**3-7.71e-5*I*I+1.792e-2*I+0.49239;
+ return T.map((t,m)=>{let p=(t<=0||I==0)?0:t<26.5?16*Math.pow(10*t/I,a):-415.85+32.24*t-0.43*t*t;return p*dayH(lat,MID[m])/12*DAYS[m]/30;});}
+function PMt(a){const rs=0.16*Math.sqrt(Math.max(a.tmax-a.tmin,0))*Ra(a.lat,a.doy);return PM({...a,rs,eaO:svp(a.tmin-2),u2:2}).et0;}
+function PT(a){const p=PM(a);return Math.max(0,1.26*p.D/(p.D+p.g)*0.408*p.rn);}
+function BC(a){let s=0;for(let j=1;j<=365;j++)s+=dayH(a.lat,j);return Math.max(0,100*dayH(a.lat,a.doy)/s*(0.46*(a.tmax+a.tmin)/2+8.13));}
+// ==== ET CORE END
+const $=id=>document.getElementById(id),f=(x,d=2)=>Number(x).toFixed(d);
+const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const COL={pm:'var(--pm)',hg:'var(--hg)',th:'var(--th)',pt:'#2f9e6b',bc:'#d1477a',to:'#8091a0',hc:'#e5b13a'};
+const doyOf=s=>{const d=new Date(s+'T00:00:00Z');return Math.round((d-Date.UTC(d.getUTCFullYear(),0,0))/864e5)};
+// tabs
+const TABS=[['calc','Calculator'],['comp','Compare methods'],['season','Season player'],['csv','Upload CSV'],['how','How it works']];
+TABS.forEach(([k,t],i)=>{const b=document.createElement('button');b.textContent=t;b.setAttribute('role','tab');b.setAttribute('aria-selected',i==0);
+ b.onclick=()=>{TABS.forEach(([j],n)=>{$('p-'+j).hidden=j!=k;$('tabs').children[n].setAttribute('aria-selected',j==k)});if(k=='season'&&!tmr)$('play').click();if(k!='season'&&tmr)$('play').click()};$('tabs').appendChild(b)});
+// chart: lines with markers
+function chart(el,x,series,unit,cur){const W=700,H=300,m={l:46,r:12,t:12,b:28};let mx=0;series.forEach(s=>s.v.forEach(v=>{if(v>mx)mx=v}));mx=Math.max(mx*1.1,1);
+ const X=i=>m.l+(W-m.l-m.r)*(x.length<2?.5:i/(x.length-1)),Y=v=>H-m.b-(H-m.t-m.b)*v/mx;let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Chart of ${unit}">`;
+ for(let k=0;k<=4;k++){const v=mx*k/4;s+=`<line x1="${m.l}" x2="${W-m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${m.l-6}" y="${Y(v)+4}" text-anchor="end" font-size="11" fill="var(--mut)">${f(v,mx<10?1:0)}</text>`}
+ const step=Math.ceil(x.length/12);x.forEach((l,i)=>{if(i%step==0)s+=`<text x="${X(i)}" y="${H-8}" text-anchor="middle" font-size="11" fill="var(--mut)">${l}</text>`});
+ series.forEach(sr=>{s+=`<polyline fill="none" stroke="${sr.c}" stroke-width="2.5" points="${sr.v.map((v,i)=>X(i)+','+Y(v)).join(' ')}"/>`;if(x.length<40)sr.v.forEach((v,i)=>s+=`<circle cx="${X(i)}" cy="${Y(v)}" r="3" fill="${sr.c}"/>`)});
+ if(cur!=null)s+=`<line id="curl" x1="${X(cur)}" x2="${X(cur)}" y1="${m.t}" y2="${H-m.b}" stroke="var(--ink)" stroke-dasharray="4"/>`;s+=`<text x="${m.l}" y="10" font-size="11" fill="var(--mut)">${unit}</text></svg><p class="note">`+series.map(s=>`<span style="color:${s.c}">■</span> ${s.n}`).join(' &nbsp; ')+'</p>';el.innerHTML=s;}
+// ---- Calculator
+const FIELDS=[['date','Date','date',null],['lat','Latitude (°)',-60,60,.1,27.7],['elev','Elevation (m)',0,4500,10,1400],['tmax','Tmax (°C)',-10,50,.1,28],['tmin','Tmin (°C)',-20,35,.1,12],['rhmax','RH max (%)',10,100,1,85],['rhmin','RH min (%)',5,100,1,40],['u2','Wind at 2 m (m/s)',0,10,.1,1.5],['sun','Sunshine (h/day)',0,14,.1,8]];
+const S={};
+FIELDS.forEach(r=>{const w=document.createElement('label');if(r[0]=='date'){w.innerHTML=`${r[1]}<input type="date" id="i_date" value="2024-04-15">`}else{S[r[0]]=r[5];
+ w.innerHTML=`${r[1]}: <span class="v" id="o_${r[0]}">${r[5]}</span><input id="i_${r[0]}" type="range" min="${r[2]}" max="${r[3]}" step="${r[4]}" value="${r[5]}">`}$('inp').appendChild(w);
+ $('i_'+r[0]).oninput=calc});
+function getA(){const a={doy:doyOf($('i_date').value||'2024-04-15')};FIELDS.slice(1).forEach(r=>{a[r[0]]=+$('i_'+r[0]).value;$('o_'+r[0]).textContent=a[r[0]]});a.tmin=Math.min(a.tmin,a.tmax);a.rhmin=Math.min(a.rhmin,a.rhmax);return a}
+function calc(){const a=getA(),p=PM(a),h=HG(a),d=h-p.et0;
+ const M=[['Penman-Monteith',p.et0,COL.pm],['Hargreaves',h,COL.hg],['PM, temperature only',PMt(a),COL.to],['Priestley-Taylor',PT(a),COL.pt],['Blaney-Criddle',BC(a),COL.bc]];
+ $('res').innerHTML=M.map(([n,v,c],i)=>`<div style="border-color:${c}">${n}<b>${f(v)}</b>mm/day${i&&p.et0>0?' ('+(v>=p.et0?'+':'')+f(100*(v-p.et0)/p.et0,0)+'%)':''}</div>`).join('');
+ $('rmsg').textContent=a.tmax-a.tmin>20?'Large day-night range: Hargreaves reads this as a very dry, sunny day.':'';
+ const rows=[['Mean temperature (°C)',p.tm],['Pressure P (kPa)',p.P],['Psychrometric γ (kPa/°C)',p.g,4],['Slope Δ (kPa/°C)',p.D,4],['Saturation vapour pressure eₛ (kPa)',p.es],['Actual vapour pressure eₐ (kPa)',p.ea],['Extraterrestrial radiation Ra (MJ/m²/day)',p.ra],['Daylight N (h)',p.N],['Solar radiation Rs (MJ/m²/day)',p.rs],['Clear-sky Rso (MJ/m²/day)',p.rso],['Net shortwave Rns',p.rns],['Net longwave Rnl',p.rnl],['Net radiation Rn',p.rn]];
+ $('steps').innerHTML=rows.map(r=>`<tr><td>${r[0]}</td><td class="mono">${f(r[1],r[2]||2)}</td></tr>`).join('');
+ const tests=[['Tmax +1 °C',{tmax:a.tmax+1}],['Tmin +1 °C',{tmin:a.tmin+1}],['Humidity +10%',{rhmax:Math.min(100,a.rhmax*1.1),rhmin:Math.min(100,a.rhmin*1.1)}],['Wind +10%',{u2:a.u2*1.1}],['Sunshine +10%',{sun:a.sun*1.1}]];
+ const ch=tests.map(([n,o])=>[n,PM({...a,...o}).et0-p.et0]),m=Math.max(...ch.map(c=>Math.abs(c[1])),1e-6);
+ $('sens').innerHTML=ch.map(([n,v])=>`<div style="display:flex;gap:8px;align-items:center"><span style="width:130px">${n}</span><span style="height:14px;width:${Math.abs(v)/m*55}%;background:${v>=0?'var(--pm)':'var(--hg)'}"></span><span class="mono">${v>=0?'+':''}${f(v,3)} mm/day</span></div>`).join('')}
+// ---- Compare
+const PRE={ // illustrative rounded monthly values: [lat, elev, tmax, tmin, rh, wind2m, sunshine]
+'Kathmandu Valley':[27.7,1400,[19.5,22,26,29,29.5,29,28,28,27.5,26,22.5,19.5],[2.5,4.5,8,11.5,15.5,18.5,19.5,19.5,18,13,7.5,3.5],[70,62,50,50,58,72,80,82,80,74,70,70],[1.2,1.3,1.5,1.6,1.6,1.4,1.2,1.1,1.1,1.1,1.1,1.1],[7.8,8,7.9,8,7.8,5.5,4,4.3,4.8,7.3,8.3,8]],
+'Terai plains':[26.5,72,[23.5,26.5,32,35.5,35,33.5,32.5,32.5,32.5,31.5,28.5,25],[9,11.5,15.5,20,23.5,25.5,26,26,25,21.5,15,10.5],[80,70,55,55,65,80,86,86,85,80,80,82],[1,1.2,1.4,1.6,1.6,1.4,1.1,1,1,0.9,0.9,0.9],[6.5,7.5,8,8,7,4.5,3.5,4,4.5,7,8,7]],
+'Dry mountain (Jomsom-like)':[28.8,2720,[7.5,9,13,17.5,21,24,24,23,21.5,18,13,9],[-5,-3.5,0,3.5,7,10.5,12.5,12,9,3.5,-1,-4],[40,40,38,35,35,40,50,55,48,40,38,40],[3.2,3.8,4.2,4.5,4.5,4.2,3.8,3.5,3.2,2.8,2.8,3],[7,7,7.5,8,8.5,8,6,6.5,8,9,8.5,7.5]],
+'Humid tropics':[13.7,2,[32,33,34,35,34,33,32.5,32,32,32,32,31.5],[22,24,25.5,26,26,25.5,25.5,25.5,25,25,24,22],[66,68,70,72,76,77,78,79,81,80,72,66],[1.8,1.9,1.9,1.8,1.6,1.6,1.7,1.6,1.4,1.4,1.7,1.8],[8.5,8.3,8,8,6.5,5.5,5,5,5,6.5,7.5,8.5]],
+'Hot desert':[24,190,[24,26,30,35,39,41,41,40,38,35,30,25],[9,10.5,14,18.5,23,25,26,25.5,23.5,20,14.5,10.5],[38,32,27,22,20,20,24,26,28,32,36,40],[3,3.2,3.4,3.4,3.4,3.6,3.4,3.2,3,2.8,2.8,2.8],[10,10,10.3,10.5,11,11.5,11.5,11,10.5,10,10,9.5]]};
+const ROWS=[['Tmax °C',2],['Tmin °C',3],['RH mean %',4],['Wind m/s',5],['Sunshine h',6],['Rain mm',7]];
+const RAIN={'Kathmandu Valley':[15,19,34,57,115,235,372,342,206,57,10,6],'Terai plains':[15,15,20,50,170,420,600,510,350,120,10,5],'Dry mountain (Jomsom-like)':[20,25,35,25,20,30,50,60,40,20,5,10],'Humid tropics':[10,30,35,70,220,150,160,190,320,240,50,10],'Hot desert':[0,0,0,0,0,0,0,0,0,0,0,0]};let cur;
+Object.keys(PRE).forEach(k=>{$('pre').add(new Option(k,k))});
+function loadPre(){const p=PRE[$('pre').value];cur=p.map(x=>Array.isArray(x)?[...x]:x);cur[7]=[...RAIN[$('pre').value]];$('clat').value=p[0];$('celev').value=p[1];
+ $('mt').innerHTML='<tr><th></th>'+MN.map(m=>`<th>${m}</th>`).join('')+'</tr>'+ROWS.map(([n,i])=>`<tr><td>${n}</td>${cur[i].map((v,m)=>`<td><input data-i="${i}" data-m="${m}" type="number" step="0.1" value="${v}" style="width:62px"></td>`).join('')}</tr>`).join('');
+ $('mt').querySelectorAll('input').forEach(e=>e.oninput=()=>{cur[+e.dataset.i][+e.dataset.m]=+e.value;comp()});comp()}
+const MD=[['pm','Penman-Monteith'],['hg','Hargreaves'],['hc','Hargreaves (calibrated)'],['th','Thornthwaite'],['to','PM, temperature only'],['pt','Priestley-Taylor'],['bc','Blaney-Criddle']],on={pm:1,hg:1,th:1};
+$('tg').innerHTML=MD.map(([k,n])=>`<label style="display:inline;margin-right:12px"><input type="checkbox" data-k="${k}" ${on[k]?'checked':''} style="width:auto"> ${n}</label>`).join('');
+$('tg').querySelectorAll('input').forEach(e=>e.onchange=()=>{on[e.dataset.k]=e.checked;comp()});
+const sm=a=>a.reduce((x,y)=>x+y,0);let DY=null,tmr=null,lastN=-1;
+function mon(dT){const lat=+$('clat').value,el=+$('celev').value,r={pm:[],hg:[],to:[],pt:[],bc:[]},tm=[];
+ for(let m=0;m<12;m++){const tx=cur[2][m]+dT,tn=cur[3][m]+dT,rh=cur[4][m],a={tmax:tx,tmin:tn,rhmax:Math.min(100,rh+10),rhmin:Math.max(5,rh-15),u2:cur[5][m],sun:cur[6][m],lat,elev:el,doy:MID[m]};
+  r.pm.push(PM(a).et0*DAYS[m]);r.hg.push(HG(a)*DAYS[m]);r.to.push(PMt(a)*DAYS[m]);r.pt.push(PT(a)*DAYS[m]);r.bc.push(BC(a)*DAYS[m]);tm.push((tx+tn)/2)}
+ r.th=TH(tm,lat);return r}
+function interp(arr,j){let i=0;while(i<12&&MID[i]<=j)i++;const a=(i+11)%12,b=i%12,ja=MID[a]-(i==0?365:0),jb=MID[b]+(i==12?365:0);return arr[a]+(arr[b]-arr[a])*(j-ja)/(jb-ja)}
+function daily(dT){const lat=+$('clat').value,el=+$('celev').value;DY={pm:[],hg:[],ra:[],nn:[]};
+ for(let j=1;j<=365;j++){const rh=interp(cur[4],j),a={tmax:interp(cur[2],j)+dT,tmin:interp(cur[3],j)+dT,rhmax:Math.min(100,rh+10),rhmin:Math.max(5,rh-15),u2:interp(cur[5],j),sun:interp(cur[6],j),lat,elev:el,doy:j};
+  DY.pm.push(PM(a).et0);DY.hg.push(HG(a));DY.ra.push(Ra(lat,j));DY.nn.push(dayH(lat,j))}
+ const j0=Math.round(+$('pl').value);chart($('dch'),DY.pm.map((_,i)=>MN[Math.min(11,Math.floor(i/30.42))]),[{n:'Penman-Monteith',v:DY.pm,c:COL.pm},{n:'Hargreaves',v:DY.hg,c:COL.hg}],'ET₀ (mm/day)',j0-1);showDay(j0)}
+function showDay(j){j=Math.max(1,Math.min(365,Math.round(j)));$('pl').value=j;const et=DY.pm[j-1],d=new Date(Date.UTC(2023,0,j));
+ $('pd').textContent=d.toLocaleDateString('en-GB',{day:'numeric',month:'long',timeZone:'UTC'})+`: ET₀ ${f(et)} mm/day, daylight ${f(DY.nn[j-1],1)} h, Ra ${f(DY.ra[j-1],1)} MJ/m²/day`;
+ const l=$('curl');if(l){const x=46+642*(j-1)/364;l.setAttribute('x1',x);l.setAttribute('x2',x)}
+ $('sun').setAttribute('r',10+DY.ra[j-1]*.5);const n=Math.min(9,Math.round(et*1.6));
+ if(n!==lastN){lastN=n;let w='';for(let i=0;i<n;i++)w+=`<path class="wp" style="animation-delay:${i*.35}s" d="M${50+i*(120/Math.max(n,1))} 118 q6 -9 0 -18 q-6 -9 0 -18"/>`;$('wisp').innerHTML=w}}
+function comp(){const dT=+$('warm').value;$('wv').textContent=dT;const R=mon(dT),B=mon(0),P=sm(R.pm);
+ const k=sm(R.pm.map((v,i)=>v*R.hg[i]))/sm(R.hg.map(v=>v*v));R.hc=R.hg.map(v=>k*v);
+ chart($('ch'),MN,MD.filter(([key])=>on[key]).map(([key,n])=>({n,v:R[key],c:COL[key]})),'ET₀ (mm/month)');
+ const rm=a=>Math.sqrt(sm(a.map((v,i)=>(v-R.pm[i])**2))/12),pc=a=>(sm(a)>=P?'+':'')+f(100*(sm(a)-P)/P,0)+'%, RMSE '+f(rm(a),1);
+ $('tot').innerHTML=MD.map(([key,n],i)=>`<div style="border-color:${COL[key]}">${n}<b>${f(sm(R[key]),0)}</b>mm/year${i?' ('+pc(R[key])+')':''}</div>`).join('');
+ $('wmsg').textContent=dT>0?`With +${dT} °C, Penman-Monteith ET₀ changes by ${f(100*(P-sm(B.pm))/sm(B.pm),1)}% (${f(P-sm(B.pm),0)} mm/year). Only temperature is changed.`:'';
+ $('cal').innerHTML=`Fitted coefficient k = <b>${f(k,2)}</b> (1.00 is the original Hargreaves). Annual error vs Penman-Monteith: ${pc(R.hg)} before, ${pc(R.hc)} after. The fit uses these same 12 months, so it shows the best case; test on separate data before trusting it.`;
+ const rain=cur[7],Pr=sm(rain),ai=Pr/P,cls=ai<.05?'hyper-arid':ai<.2?'arid':ai<.5?'semi-arid':ai<.65?'dry sub-humid':'humid',dfc=R.pm.filter((v,i)=>v>rain[i]).length;
+ chart($('rch'),MN,[{n:'Rainfall',v:rain,c:'#3b82c4'},{n:'Penman-Monteith ET₀',v:R.pm,c:COL.pm}],'mm/month');
+ $('ai').innerHTML=`Rainfall ${f(Pr,0)} mm, ET₀ ${f(P,0)} mm. Aridity index (rain / ET₀) = <b>${f(ai,2)}</b>, which is <b>${cls}</b> on the UNEP scale. ET₀ exceeds rainfall in <b>${dfc}</b> of 12 months.`;
+ daily(dT)}
+$('sc').innerHTML='<svg viewBox="0 0 220 140" role="img" aria-label="Sun and rising vapour scaled to ET₀"><circle id="sun" cx="110" cy="38" r="20" fill="var(--hg)" opacity=".85"/><rect x="0" y="120" width="220" height="20" fill="var(--pm)" opacity=".35"/><g id="wisp" fill="none" stroke="var(--pm)" stroke-width="2" stroke-linecap="round"></g></svg>';
+$('pl').oninput=()=>showDay(+$('pl').value);
+$('play').onclick=()=>{if(tmr){clearInterval(tmr);tmr=null;$('play').textContent='Play year'}else{$('play').textContent='Pause';tmr=setInterval(()=>showDay(+$('pl').value%365+2),70)}};
+$('pre').onchange=loadPre;$('clat').oninput=$('celev').oninput=$('warm').oninput=comp;loadPre();
+// ---- CSV
+let out=[];
+function runCSV(txt){const L=txt.trim().split(/\r?\n/),h=L[0].toLowerCase().split(',').map(s=>s.trim()),ix=n=>h.indexOf(n),need=['date','tmax','tmin','rh_mean','wind','sunshine'],miss=need.filter(n=>ix(n)<0);
+ if(miss.length){$('fmsg').textContent='Missing columns: '+miss.join(', ')+'. Expected: '+need.join(',');return}
+ const lat=+$('flat').value,elev=+$('felev').value;out=[];let bad=0;
+ L.slice(1).forEach(r=>{const c=r.split(',');const date=c[ix('date')].trim(),tx=+c[ix('tmax')],tn=+c[ix('tmin')],rh=+c[ix('rh_mean')],u=+c[ix('wind')],sn=+c[ix('sunshine')];
+  if([tx,tn,rh,u,sn].some(isNaN)||isNaN(doyOf(date))||tn>tx){bad++;return}
+  const a={tmax:tx,tmin:tn,rhmax:rh,rhmin:rh,u2:u,sun:sn,lat,elev,doy:doyOf(date)};
+  // single mean RH: ea = RHmean x es (FAO-56 eq. 19), same as rhmax = rhmin = RHmean
+  out.push({date,pm:PM(a).et0,hg:HG(a)})});
+ $('fmsg').textContent=`${out.length} days calculated`+(bad?`, ${bad} rows skipped (missing values, bad date or Tmin above Tmax)`:'')+'.';
+ if(!out.length)return;$('fres').hidden=false;$('dl').hidden=false;
+ chart($('fch'),out.map(o=>o.date.slice(5)),[{n:'Penman-Monteith',v:out.map(o=>o.pm),c:COL.pm},{n:'Hargreaves',v:out.map(o=>o.hg),c:COL.hg}],'ET₀ (mm/day)');
+ const t=k=>out.reduce((s,o)=>s+o[k],0);
+ $('ft').innerHTML=`<tr><th>Total over ${out.length} days (mm)</th><th>Penman-Monteith</th><th>Hargreaves</th></tr><tr><td></td><td>${f(t('pm'),1)}</td><td>${f(t('hg'),1)}</td></tr>`}
+$('file').onchange=e=>{const r=new FileReader();r.onload=()=>runCSV(r.result);r.readAsText(e.target.files[0])};
+$('sample').onclick=()=>runCSV(`date,tmax,tmin,rh_mean,wind,sunshine
+2024-04-01,28.5,12.1,55,1.4,8.6
+2024-04-02,29.2,12.8,52,1.6,9.1
+2024-04-03,30.1,13.5,48,1.8,9.4
+2024-04-04,27.0,14.2,63,1.3,6.2
+2024-04-05,26.4,14.0,68,1.1,5.0
+2024-04-06,28.8,13.1,57,1.5,8.2
+2024-04-07,30.5,14.6,46,2.0,9.8`);
+$('dl').onclick=()=>{const t='date,et0_penman_monteith_mm,et0_hargreaves_mm\n'+out.map(o=>`${o.date},${f(o.pm,3)},${f(o.hg,3)}`).join('\n'),a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv'}));a.download='et0_results.csv';a.click()};
+calc();
+</script></body></html>
